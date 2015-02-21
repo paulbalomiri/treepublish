@@ -1,4 +1,5 @@
 
+_= lodash
 unless Match.All?
   Match.All= (patterns...)->
     Match.Where (o)->
@@ -8,8 +9,10 @@ unless Match.All?
 
 
 @TP=TP=
-  links:{}
+  links:default_links= {}
+  collections:default_collections= {}
   default_link_spec: true
+  
   _collection_getters:do ->
     ret= []
     if ET?.get_collection_by_name
@@ -23,10 +26,11 @@ unless Match.All?
       ret.push (name)->Meteor.connection._stores[a]
     return ret
   _collection_name_getters: do -> 
+    ret=[(col)->col.name or col._name]
     if ET?.get_collection_name?
-      [ET.get_collection_name]
-    else 
-      [(col)->col.name or col._name]
+      ret.push ET.get_collection_name
+    return ret
+      
   get_collection_name:(name)->
     for getter in TP._collection_name_getters
       if(ret= getter(name))
@@ -35,6 +39,14 @@ unless Match.All?
   get_collection_by_name: (name)->
     for getter in TP._collection_getters
       if(ret= getter(name))
+        return ret
+    return
+  _links_definition_getters:[
+    (col_name)-> TP.links?[col_name]
+  ]
+  get_links_definition:(collection_name)->
+    for getter in TP._links_definition_getters
+      if(ret= getter(collection_name))
         return ret
     return
   _collection_type_getters:do ->
@@ -89,7 +101,7 @@ unless Match.All?
       if _.isFunction link_def
         link_def= link_def.call subscription_context, link_def, doc, link_field, links_def
       if _.isBoolean link_def
-        unless link_def and ( link.collection? or link.type?)
+        unless link_def and ( link.link_collection? or link.type?)
           continue
       else if _.isString link_def
         link?={}
@@ -130,10 +142,119 @@ unless Match.All?
       ret?={}
       ret[link_field] = link
     return ret
-  outer_hull_default_options:
+  outer_hull_default_options: do ->
     max_depth: 5000
-  outer_hull:(collection, id,options={})->
+    links: default_links
+    collections: default_collections
+  resolve_link:(link, opts, callback)->
+    try
+      ret= TP.get_collection_by_name(link.link_collection)?.findOne(link.link_id)
+    catch e
+      error = e 
+    finally
+      if callback?
+        callback(e,ret)
+        return 
+    return ret
 
+  outer_hull: (opts)->
+    _.defaults opts,
+      root_keys:{}
+      deps:{}
+      set:{}
+      failed_resolutions:{}
+    TP._outer_hull opts
+  _set_root_deps:(root_keys, deps )->
+    for collection, o1 of deps 
+      for id, incoming of o1
+        if _.deepGet(incoming, ['root'] )? != (is_root= _.deepGet(root_keys,[collection,id]))
+          if is_root
+            incoming.root= true
+          else
+            delete incoming.root
+    for collection, o1 of root_keys
+      for id, incoming of o1
+        _.deepSet deps, [collection,id,'root'], true
 
+  _outer_hull: (opts)->
+    [set, deps,  root_keys, failed_resolutions]= [opts.set, opts.deps, opts.root_keys, opts.failed_resolutions]
+    [added,removed]=[{},{}]
+    TP._set_root_deps(root_keys,deps)
+    work= _.cloneDeep set
+    while  _.keys(work).length
+      old_work=work
+      work={}
+      stoppers= {}
+      for collection, objects  of old_work
+        for key,obj of objects
+          links= TP.links_for TP.get_links_definition(collection), obj
+          ##Add links to new objects
+          for prop, val of links
+            unless _.deepIn set ,[val.link_collection, val.link_id]
+              dep_path= [
+                          val.link_collection 
+                          val.link_id
+                          collection
+                          key
+                          prop
+                        ]
+              have_dep = _.deepGet deps, dep_path
+              unless have_dep? 
+                dep = TP.resolve_link val, opts
+                unless dep?
+                  failed_resolutions[val.collection_id] = 
+                    from_link: val
+                    message: "Link resolution attempt returned undefined/null"
+                else
+                  _.deepSet deps, dep_path, 1
+                  new_path= [val.link_collection, val.link_id]
+                  unless _.deepIn set, new_path
+                    console.log "added:" ,new_path...
+                    _.deepSet added, new_path , true
+                    _.deepSet set, new_path , _.omit(dep,'_id')
+                    _.deepSet work, new_path, dep
+    debugger
+    ##now check removals
+    work= _.cloneDeep set
 
-
+    while _.keys(work).length
+      old_work=work
+      work= {}
+      for collection ,o1 of old_work
+        for id, obj of o1
+          had_incoming=
+            any:false
+            col:false
+            obj:false            
+          if (incoming = _.deepGet deps, [collection,id])
+            for in_collection, o2 of incoming
+              if in_collection=='root'
+                had_incoming.any=true
+                continue
+              for in_id ,o3 of o2
+                link_source= TP.links_for TP.get_links_definition(in_collection), _.deepGet set, [in_collection, in_id]
+                for in_prop of o3
+                  link=_.deepGet(link_source, in_prop)
+                  if _.isEqual [link?.link_collection, link?.link_id],[collection,id]
+                    had_incoming.col= had_incoming.obj= had_incoming.any= true
+                  else 
+                    delete o3[in_prop]
+                unless had_incoming.obj
+                  delete o3[in_id]
+                had_incoming.obj= false
+              unless had_incoming.col
+                delete incoming[collection]
+              had_incoming.col= false
+          unless had_incoming.any 
+            my_links= TP.links_for TP.get_links_definition(collection), _.deepGet set, [collection,id]
+            # add everyone who depends on us back to the work list
+            for prop, link of my_links
+              prop_path= [ link.link_collection,link.link_id]
+              _.deepSet work, prop_path , _.deepGet set, prop_path
+            if set[collection]?[id]?
+              delete set[collection]?[id]
+            unless _.keys(set[collection]).length
+              delete set[collection]
+            _.deepSet removed, [collection,id], true
+            
+    return [added,removed]
