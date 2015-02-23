@@ -83,7 +83,8 @@ class TP.Observer
       f= (id,args...)=>
         if (cursor_env=@cursors[collection])? and (id of cursor_env.suppress_propagation)
           console.log("Suppressed call : #{name} for #{collection}.#{id}")
-          cursor_env.suppress_propagation[id]= f.bind(this, id,args...,false)
+          cursor_env.suppress_propagation[id]?=[]
+          cursor_env.suppress_propagation[id].push f.bind(this, id,args...,false)
         else
           @[name] id,args..., false
       return [name,f]
@@ -112,14 +113,14 @@ class TP.Observer
             next_handler_id:0
         for id of ids
           if cursor_env.id_to_handler[id]?
-            unless  _.isUndefined(suppressed_call = cursor_env.suppress_propagation[id])
+            if  (suppressed_calls = cursor_env.suppress_propagation[id])?
               delete cursor_env.suppress_propagation[id]
               console.log("added a handler which we have already been watching")
-              suppressed_call?()
+              for suppressed_call in suppressed_calls
+                suppressed_call()
             else
               console.error "Error, request to watch #{collection}._id=#{id} twice!!!"
           else
-            
             cur= TP.get_collection_by_name(collection).find
               _id:
                 $in: ids
@@ -172,6 +173,7 @@ class TP.Observer
               console.error("Stopping sunscription for handler #{collection}.#{handler_id}, which already did not have any watched ids!")
       else
         console.error("Request to stop observation on unwatched collection")
+  
   added: (collection, id,fields, is_root=true)->
     if is_root
       _.deepSet @hull.root_keys, [collection, id], true
@@ -197,7 +199,7 @@ class TP.Observer
     if _.deepIn(@hull.set[collection][id])
       @s.changed @out_collection_name(collection),id,fields
     else
-      console.error("change of #{collection}.#{id} caused the object itself noty to be in the result set any longer. fields:#{JSON.stringify(fields)}")
+      console.error("change of #{collection}.#{id} caused the object itself not to be in the result set any longer. fields:#{JSON.stringify(fields)}")
   removed:(collection,id,is_root=true)->
     if is_root
       delete @hull.root_keys[collection][id]

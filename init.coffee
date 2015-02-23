@@ -19,11 +19,11 @@ unless Match.All?
       ret.push ET.get_collection_by_name
     else
       ret.push (name)->
-        if collections?[name]?
-          return collections[name]
+        if TP.collections?[name]?
+          return TP.collections[name]
         return
     if Meteor.isClient
-      ret.push (name)->Meteor.connection._stores[a]
+      ret.push (name)->Meteor.connection._stores[names]
     return ret
   _collection_name_getters: do -> 
     ret=[(col)->col.name or col._name]

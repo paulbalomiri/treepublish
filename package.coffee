@@ -31,3 +31,10 @@ Package.on_use (api) ->
   api.add_files both_f, both
   api.add_files server_f, server
   api.add_files client_f, client
+
+Package.on_test (api)->
+
+  api.use [ 'coffeescript' ,'alethes:lodash@0.7.1' ,'mongo', 'tinytest', 'pba:treepublish', 'pba:lodash-deep'] 
+  api.add_files  ['meteor-unofficial' ,'live-links'].map (f)->"tests/#{f}.coffee"
+  api.add_files ['tests/live-links-client.coffee'], ['client']
+  api.add_files ['tests/live-links-server.coffee'], ['server']
