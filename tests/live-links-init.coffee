@@ -14,13 +14,19 @@ share.test_case_result_mixin =
       n1= G.normalize_link_values _.cloneDeep g1, true
       n2= G.normalize_link_values _.cloneDeep g2, true
       @equal n1,n2, msg
+Tinytest.addWithGraph = (name,g,f)->
+  my_f=(args...,cb)->
+    f(args...)
+    cb()
+  Tinytest.addWithGraphAsync( name, g, my_f )
 
-Tinytest.addWithGraph = ( name, g, f )->
-  Tinytest.add name,  (test, args...)->
+Tinytest.addWithGraphAsync = ( name, g, f )->
+  Tinytest.addAsync name,  (test, args...)->
     G.reset_db()
     G.insert_links(g)
     _.extend test, share.test_case_result_mixin
     f.call this,test,args...    
+
 do->
 
   links_per_collection= 10;

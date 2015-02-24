@@ -109,7 +109,7 @@ Tinytest.publishTest "test that a graph appears in the result set",
         B:''
       ,
         "The published graph differs from the input graph"
-    test.eqGraph  G.get_graph(share.result_appendix),
+    test.eqGraph  G.get_graph(true),
         A:'B0'
         B:''
       ,
@@ -125,7 +125,7 @@ Tinytest.publishTest "Test that a dependent component is added, and a not depend
   (test)->
     g= G.get_graph true
     oplog= @oplog_cur.fetch()
-    
+
     test.eqGraph  g,
         A:'B0'
         B:''
@@ -134,6 +134,47 @@ Tinytest.publishTest "Test that a dependent component is added, and a not depend
 
 
 
+Tinytest.publishTest "Test that a dependent component is added, and a not dependent is not added",
+  (test)-> 
+    G.set_graph
+      A:"B0,"
+      B:',A1'
+    @subscribe 'result-collections', 'B'
+  ,
+  (test)->
+    g= G.get_graph true
+    oplog= @oplog_cur.fetch()
+    
+    test.eqGraph  g,
+        A:''
+        B:',A1'
+      , 
+        "B0 ought to be in the result set, B1 not."
+
+Tinytest.addWithGraphAsync "Test that a change in a component yields to a change in subscription is added, and a not dependent is not added",
+  (test, on_complete)-> 
+    G.set_graph
+      A:"B0"
+      B:','
+      C:""
+    subscription= Meteor.subscribe 'result-collections', 'A',
+      onReady: ->
+        g= G.get_graph true
+        test.eqGraph g,
+          A:"B0"
+          B:"" 
+        change_link('A0', 'B1' )
+        Meteor.autorun (c)->
+          g= G.get_graph()
+          unless c.firstRun
+            test.eqGraph g,
+              A:"B0"
+              B:""
+            g.B.idx==1
+            subscription.stop()
+            on_complete()
+        
+        
 
 
 
