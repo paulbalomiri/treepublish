@@ -35,6 +35,12 @@ Package.on_use (api) ->
 Package.on_test (api)->
 
   api.use [ 'coffeescript' ,'alethes:lodash@0.7.1' ,'mongo', 'tinytest', 'pba:treepublish', 'pba:lodash-deep'] 
-  api.add_files  ['meteor-unofficial' ,'live-links'].map (f)->"tests/#{f}.coffee"
+  
+  #stage 1 (declarations needed for testing) (cntains init code for client and server)
+  api.add_files  ['meteor-unofficial' ,'live-links-init'].map (f)->"tests/#{f}.coffee"
+  
+  #stage 2 client/server tests (also contain client/server specific init)
   api.add_files ['tests/live-links-client.coffee'], ['client']
   api.add_files ['tests/live-links-server.coffee'], ['server']
+  #stage 3 common tests
+  api.add_files ['tests/live-links-common.coffee'] 

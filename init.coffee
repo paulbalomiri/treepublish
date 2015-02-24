@@ -29,8 +29,7 @@ unless Match.All?
     ret=[(col)->col.name or col._name]
     if ET?.get_collection_name?
       ret.push ET.get_collection_name
-    return ret
-      
+    return ret  
   get_collection_name:(name)->
     for getter in TP._collection_name_getters
       if(ret= getter(name))
@@ -177,6 +176,7 @@ unless Match.All?
         _.deepSet deps, [collection,id,'root'], true
 
   _outer_hull: (opts)->
+    invocation_id=Random.id()
     [set, deps,  root_keys, failed_resolutions]= [opts.set, opts.deps, opts.root_keys, opts.failed_resolutions]
     [added,removed]=[{},{}]
     TP._set_root_deps(root_keys,deps)
@@ -209,9 +209,10 @@ unless Match.All?
                   _.deepSet deps, dep_path, 1
                   new_path= [val.link_collection, val.link_id]
                   unless _.deepIn set, new_path
-                    console.log "added:" ,new_path...
+                    console.log "#{invocation_id}added:" , _.deepGet(set, new_path),new_path...
                     _.deepSet added, new_path , true
                     _.deepSet set, new_path , _.omit(dep,'_id')
+                    console.log "set to" , _.deepGet(set, new_path)
                     _.deepSet work, new_path, dep
     debugger
     ##now check removals
@@ -256,5 +257,13 @@ unless Match.All?
             unless _.keys(set[collection]).length
               delete set[collection]
             _.deepSet removed, [collection,id], true
-            
+    for collection, o1 in added
+      for id in o1
+        if removed[collection]?[id]?
+          console.log("object found in added and in removed. Removing from both")
+          for obj in [added, removed]
+            if obj[collection]?[id]?
+              delete obj[collection][id]
+              unless _.keys(obj[collection]).length
+                delete obj[collection]      
     return [added,removed]

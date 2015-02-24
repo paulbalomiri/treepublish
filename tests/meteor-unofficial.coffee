@@ -25,3 +25,12 @@ Tinytest.add "Test availability of _suppress_initial on Meteor.Collection.observ
   test.equal seen_ids_wo_suppress, [initial_ids...,added_ids...] , 'somehow Not all inserted elements have been seen'
   
   test.equal seen_ids_with_suppress, added_ids, "_suppress_initial did not observe exavtly the objects inserted after observation point"
+
+test_collection=new Meteor.Collection('test_collection') 
+  
+Tinytest.add "test cursor-> collection name", (test)->
+  col = test_collection
+  cur = col.find()
+  test.equal cur._getCollectionName(), 'test_collection'
+
+#if Meteor.isServer
