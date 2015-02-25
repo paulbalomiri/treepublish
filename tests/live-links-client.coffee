@@ -1,7 +1,5 @@
 
 G= share.G
-
-
 collection_name_appendix= new Meteor.EnvironmentVariable()
 
 
@@ -59,19 +57,21 @@ Tinytest.publishTest= (name, before_subscribe, after_subscribe)->
         unless x
           return false
       return true
+    subscription_handlers=[]
     finisher= ->
       try
         debugger
         args.after_subscribe?(test)
       finally
+        for subscription_handler in subscription_handlers
+          subscription_handler.stop()
         on_complete()
     for sub_args, idx in subscribe_args
       if _.isString sub_args
         sub_args= [sub_args]
 
       do(idx=idx)->
-        debugger
-        Meteor.subscribe sub_args... ,
+        subscription_handlers.push Meteor.subscribe sub_args... ,
           onReady: ()->
             try
               ready[idx]=true
@@ -99,10 +99,12 @@ Tinytest.publishTest "test that a graph appears in the result set",
     G.set_graph
       A:'B0'
       B:""
+    debugger
     @subscribe "result-collections", 'A'
     #G.change_link "B1", "A0"
   ,
   (test)->
+    debugger 
     g= G.get_graph()
     test.eqGraph  g,
         A:'B0'
@@ -114,18 +116,18 @@ Tinytest.publishTest "test that a graph appears in the result set",
         B:''
       ,
         "The published result graph differs from the input graph"
-
+oplog_cur=share.oplog.find()
 Tinytest.publishTest "Test that a dependent component is added, and a not dependent is not added",
   (test)-> 
     G.set_graph
       A:"B0"
-      B:','
+      B:';'
     @subscribe 'result-collections', 'A'
   ,
   (test)->
     g= G.get_graph true
-    oplog= @oplog_cur.fetch()
-
+    oplog= oplog_cur.fetch()
+    debugger
     test.eqGraph  g,
         A:'B0'
         B:''
@@ -134,20 +136,20 @@ Tinytest.publishTest "Test that a dependent component is added, and a not depend
 
 
 
-Tinytest.publishTest "Test that a dependent component is added, and a not dependent is not added",
+Tinytest.publishTest "Test that a dependent component is added, and a not dependent is not added 2",
   (test)-> 
     G.set_graph
-      A:"B0,"
-      B:',A1'
+      A:"B0;"
+      B:';A1'
     @subscribe 'result-collections', 'B'
   ,
   (test)->
     g= G.get_graph true
-    oplog= @oplog_cur.fetch()
+    #oplog= @oplog_cur.fetch()
     
     test.eqGraph  g,
-        A:''
-        B:',A1'
+        A:'B0;'
+        B:'1:A1'
       , 
         "B0 ought to be in the result set, B1 not."
 
@@ -155,7 +157,7 @@ Tinytest.addWithGraphAsync "Test that a change in a component yields to a change
   (test, on_complete)-> 
     G.set_graph
       A:"B0"
-      B:','
+      B:';'
       C:""
     subscription= Meteor.subscribe 'result-collections', 'A',
       onReady: ->

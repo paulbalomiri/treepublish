@@ -138,12 +138,9 @@ class TP.Observer
 
     return
   stop_observation:(removed_objects)->
-    for collection, ids of removed_objects
+    for collection, ids_o of removed_objects
       cursor_env= @cursors[collection]
-      
-      ids=[]
-      for id of ids
-        ids.push[id]
+      ids= _.keys(ids_o)
       if cursor_env?
         # First separate watched ids, from watched, but suppressed
         handler_to_ids={}
@@ -159,13 +156,14 @@ class TP.Observer
         #now go over the watched ids to decide whether to remove handler or suppress        
         for handler_id, watched_ids of handler_to_ids
           if (dif= _.difference watched_ids, ids).length
-            # we still got some watched ids, so ju8st suppress the current set
-            ids.map (inactive_id)->
-              if cursor_env.suppress_propagation[inactive_id]?
+            console.error("keep subscriptions #{dif} after removing #{ids} out of watched_ids #{watched_ids}")
+            # we still got some watched ids, so just suppress the current set
+            dif.map (inactive_id)->
+              if cursor_env.suppress_propagation[inactive_id]? 
                 console.error "handler #{collection}.#{handler_id} got the request to suppress #{inactive_id} twice!"
               else
                 cursor_env.suppress_propagation[inactive_id]=null
-            console.log "keeping handler #{collection}.#{handler_id} suppressing ids #{ids}"
+            console.log "keeping handler #{collection}.#{handler_id} suppressing ids [#{ids}] out of watched #{watched_ids}"
           else
             console.log("stopped handler #{collection}.#{handler_id} which was watching the ids #{watched_ids.join(',')} and suppressing ids#{_.keys().join(',')}")
             cursor_env.handlers[handler_id].stop()
@@ -187,27 +185,32 @@ class TP.Observer
   added: (collection, id,fields, is_root=true)->
     if is_root
       _.deepSet @hull.root_keys, [collection, id], true
-    _.deepSet @hull.set, [collection, id], fields
-    console.error(@out_collection_name(collection), id,fields)
     @s.added @out_collection_name(collection), id,fields
-    unless observer_environment.get()
-      observer_environment.withValue true, =>
-        [added,removed]= TP.outer_hull @hull
-        console.log "added:" ,added, "removed:", removed
-        if added[collection]?[id]?
-          console.error("i am myself in the added collection! ") 
-        @observe_dependent(added)
-        if _.keys(removed).length
-          @stop_observation(removed_objects)
-          console.error "add operation for #{collection}._id=#{id}caused removals! "
+    unless _.deepIn @hull.set ,[collection,id]
+      _.deepSet @hull.set ,[collection,id], fields
+      console.error(@out_collection_name(collection), id,fields)
+      unless observer_environment.get()
+        observer_environment.withValue true, =>
+          [added,removed]= TP.outer_hull @hull
+          console.log "added:" ,added, "removed:", removed
+          if added[collection]?[id]?
+            console.error("i am myself in the added collection! ") 
+          @observe_dependent(added)
+          if _.keys(removed).length
+            @stop_observation(removed_objects)
+            console.error "add operation for #{collection}._id=#{id}caused removals! "
   changed: (collection,id,fields, is_root=true)->
-    for name, field of fields
-      _.deepSet @hull.set, [collection, id, name], field
+    for field, val of fields
+      if _.isUndefined val
+        o=_.deepSet @hull.set, [collection,id] 
+        delete o[field]
+      else
+        _.deepSet @hull.set, [collection,id, field], val 
     @s.changed @out_collection_name(collection),id,fields
     unless observer_environment.get()
       observer_environment.withValue true, =>
         [added,removed]= TP.outer_hull @hull
-        console.log "added:" ,added, "removed:", removed
+        console.log "CHANGED added:" ,added, "removed:", removed
         
         @observe_dependent(added)
         if is_root and removed[collection]?[id]?
@@ -221,31 +224,33 @@ class TP.Observer
         @stop_observation(removed)
     unless _.deepIn(@hull.set[collection][id])
       console.error("change of #{collection}.#{id} caused the object itself not to be in the result set any longer. fields:#{JSON.stringify(fields)}")
+  _set_ids: ()->
+    ret= {}
+    for col , o1 of @hull.set
+      ret[col]=[]
+      for id of o1
+        ret[col].push id
+    return ret
   removed:(collection,id,is_root=true)->
     if is_root
       delete @hull.root_keys[collection][id]
-    obj=_.deepGet(@hull.root_keys, [collection])
-    delete obj[id]
+    unless _.deepGet @hull.set, [collection][id]
+      console.error "Cannot remove #{collection}.#{id}, because it is not in the active set!"
+    if _.keys(@hull.set[collection]).length >1
+      delete @hull.set[collection][id]
+    else
+      delete @hull.set[collection]  
+    console.error "REMOVE: is_root=#{is_root}, col=#{collection}, id=#{id}"
     @s.removed(@out_collection_name(collection), id)
     unless observer_environment.get()
       observer_environment.withValue true, =>
         [added,removed]= TP.outer_hull @hull
-        console.error "REMOVE: is_root=#{is_root}" ,"added:" ,added, "removed:", removed
+        console.error "REMOVESET: " ,"added:" ,added, "removed:", removed, "set:", @_set_ids()
         @observe_dependent(added)
-        
-        if is_root
-
-          #don't remove observation from obects we did not subscribe ourselves
-          delete removed[collection][id]
-          keep= false
-          for key of removed[collection]
-            keep= true
-          unless keep
-            delete removed[collection]
         @stop_observation(removed)
         if added? and _.keys(added).length
           console.error 'remove operation caused add to outer hull!'
-  add_external_cursos:(curs)->
+  add_external_cursors:(curs)->
     unless _.isArray curs
       curs=[curs]
     for cur in curs
@@ -321,7 +326,7 @@ if Meteor.isServer
       if _.isObject ret
         unless _.isArray ret
           ret= [ret]
-        observer.add_external_cursos(ret)
+        observer.add_external_cursors(ret)
     Meteor.publish opts.name,  (args...)->
       #console.error('TP.publish function called')
       ret= pub_wrapper.call this, args...

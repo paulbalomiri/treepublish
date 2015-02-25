@@ -1,7 +1,7 @@
 _= lodash
 G= share.G
 
-share.oplog= new Meteor.Collection('oplog')
+
 Tinytest.add "clean test db check", (test)->
   
   G.reset_db()
@@ -11,10 +11,12 @@ Tinytest.add "clean test db check", (test)->
 Tinytest.add "test_normalization", (test)->
   test.equal G.normalize_link_values({A:["b2", "b1"]}),
     A:[
+          idx_offset:0
           l0:
             link_collection:"B"
             target_idx:2
         ,
+          idx_offset:1
           l0:
             link_collection:"B"
             target_idx:1
@@ -22,30 +24,36 @@ Tinytest.add "test_normalization", (test)->
 
   test.equal G.normalize_link_values({B:["a2", "c1", "c3"], A:[["a1","b1"], "c3", ['a2','a3']] }),
     B: [
+        idx_offset:0
         l0:
           link_collection: 'A'
           target_idx: 2 
       ,
+        idx_offset:1
         l0:
           link_collection: 'C'
           target_idx: 1 
       ,
+        idx_offset:2
         l0:
           link_collection: 'C'
           target_idx: 3 
       ]
     A:[
+        idx_offset:0
         l0:
           link_collection: 'A'
           target_idx: 1
         l1:
           link_collection: 'B'
           target_idx: 1
-      ,  
+      , 
+        idx_offset:1 
         l0:
           link_collection: 'C'
           target_idx: 3 
       ,
+        idx_offset:2
         l0:
           link_collection: 'A'
           target_idx: 2
@@ -93,14 +101,17 @@ Tinytest.add 'Test graph equivalence Function', (test)->
   test.isFalse G.equivalent_graphs {A:['']}, {B:['']}, 'two graphs with nodes in different collections'
   g=
     A:[
+        idx_offset:0
         l0:
           link_collection:'B'
           target_idx: 0
       ]
-    B: [null]
+    B: [
+      idx_offset:0
+    ]
   test.equal G.normalize_link_values({A:['B0'], B:['']},true), g, 'two graphs with nodes in different collections'
   test.equal G.normalize_link_values({A:['B0'], B:['']},true), g, 'two graphs with nodes in different collections'
-  test.isTrue G.equivalent_graphs {A:"B0,B2", B:",,"}, {A:["B0", "B2"], B:[null,null,null]}, 'different representations of empty nodes'
+  test.isTrue G.equivalent_graphs {A:"B0;B2", B:";;"}, {A:["B0", "B2"], B:[null,null,null]}, 'different representations of empty nodes'
 g= 
   A:['B0']
   B:['']

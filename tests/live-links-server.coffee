@@ -8,9 +8,9 @@ tp_publish_opts=
   _out_collection_name: (name)->"#{name}#{G.result_appendix}"
   cb:
     on_event: (event_name, collection,id,fields,is_root)-> 
-      if event_name[0..4]=='after'
-        console.log("subscription: #{@_subscriptionHandle} ,#{event_name} : col=#{@out_collection_name collection}, id: #{id} ")
-        console.log("watched_cursors:",   @cursors)
+      #if event_name[0..4]=='after'
+      #  console.log("subscription: #{@_subscriptionHandle} ,#{event_name} : col=#{@out_collection_name collection}, id: #{id} ")
+      #  console.log("watched_cursors:",   @cursors)
       share.oplog.insert
         op: event_name
         subscription_id: @_subscriptionHandle

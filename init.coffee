@@ -266,4 +266,5 @@ unless Match.All?
               delete obj[collection][id]
               unless _.keys(obj[collection]).length
                 delete obj[collection]      
+    console.error "outer hull: ADDED:", added, "removed:", removed
     return [added,removed]

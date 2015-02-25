@@ -9,6 +9,7 @@ share.link_prop_names= ['l0', 'l1', 'l2', 'l3']
 share.G= G =
   result_appendix: "_result"
 
+share.oplog= new Meteor.Collection('oplog')
 share.test_case_result_mixin = 
   eqGraph: (g1, g2, msg)->
       n1= G.normalize_link_values _.cloneDeep g1, true
@@ -58,15 +59,18 @@ links:
 
 link_short_name_rex=/([A-Za-z0-9]*[A-Za-z])([0-9]+)/
 
-G.normalize_link_values= (links, normalize_objects=false )->
+G.normalize_link_values= (links, normalize_objects=false, start_index )->
   for collection,link_props_array of links
     unless _.isArray link_props_array
       if _.isString link_props_array
-        links[collection]=link_props_array= link_props_array.split(',')
+        links[collection]=link_props_array= link_props_array.split(';')
       else
         links[collection]=link_props_array=[link_props_array]
     for link_props, link_props_array_idx in link_props_array
       if _.isString link_props
+        [node_props,link_props]=link_props.split(":")
+        unless link_props
+          [node_props,link_props]=[link_props, node_props]
         if link_props==""
           link_props= null
         else
@@ -102,8 +106,31 @@ G.normalize_link_values= (links, normalize_objects=false )->
             if ret?.idx?
               val.target_idx=ret.idx
             delete val.link_id
+      if node_props 
+        link_props.idx= node_props/1
       link_props_array[link_props_array_idx]= link_props
-      
+    links[collection]=link_props_array= link_props_array.map (l)->
+      if l?
+        l
+      else
+        {}
+    groups= _.groupBy link_props_array , (node)->
+      unless node?.forced_node?
+        return
+      else
+        return node.forced_node
+    if groups[undefined]?
+      for node, idx in groups[undefined]
+        if start_index?
+          node.idx= start_index+idx
+          if groups[idx]
+            for forced_node in groups[idx]
+              forced_node.remove= true
+            _.extend node, groups[idx].map( (doc) -> _.omit(doc,'remove'))...
+        else
+          node.idx_offset= idx
+    link_props_array= link_props_array.filter (doc)-> not doc.remove
+
   return links
 G.set_graph= (g)->
   G.reset_db()
@@ -114,13 +141,16 @@ G.insert_links= (links)->
   idx = {}
   update_ids= {}
   for collection , link_props_array of links
-    col_obj= TP.get_collection_by_name(collection)
-       
+    col_obj= TP.get_collection_by_name(collection)       
     for link_props, link_props_array_idx in link_props_array
       idx[collection] ?= col_obj.find().count()
-      obj= 
-        idx:idx[collection]
-      idx[collection]++
+      obj={} 
+      if link_props?.idx_offset?
+        obj.idx= idx[collection] + link_props.idx_offset
+        delete link_props.idx_offset
+      else if link_props?.idx
+        obj.idx= link_props.idx
+        delete link_props.idx
       ret_idx=ret.length
       ret.push obj
       if link_props?
@@ -139,7 +169,9 @@ G.insert_links= (links)->
         $set:{}
         $unset:{}
       obj= ret[o.ret_idx]
-      for prop in o.props 
+      for prop in o.props
+        unless TP.get_collection_by_name(obj[prop].link_collection).findOne({idx:obj[prop].target_idx})?._id?
+          debugger
         mod.$set["#{prop}.link_id"]=obj[prop].link_id = TP.get_collection_by_name(obj[prop].link_collection).findOne({idx:obj[prop].target_idx})._id
         mod.$unset["#{prop}.target_idx"]=true
         delete obj[prop].target_idx
