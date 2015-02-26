@@ -182,46 +182,59 @@ class TP.Observer
       else
         console.error("Request to stop observation on unwatched collection (subscr=#{@_subscriptionHandle}, col=#{collection}, id=#{id})")
   
+  is_observed: (path)->
+    cursor_env = _.deepP
   added: (collection, id,fields, is_root=true)->
+    path= [collection, id]
     if is_root
-      _.deepSet @hull.root_keys, [collection, id], true
-    @s.added @out_collection_name(collection), id,fields
-    unless _.deepIn @hull.set ,[collection,id]
-      _.deepSet @hull.set ,[collection,id], fields
-      console.error(@out_collection_name(collection), id,fields)
-      unless observer_environment.get()
+      count= _.deepGet @hull.root_keys, path, 0
+      _.deepSet @hull.root_keys, path, count++
+      if count==1
+        if is_observed
+          @stop_observation( _.deepSet {} , path , true)
+        # We just added this
+        @s.added @out_collection_name(collection), id,fields
+        _.deepSet @hull.set ,path, fields
+        [added,removed]= TP.outer_hull @hull
         observer_environment.withValue true, =>
-          [added,removed]= TP.outer_hull @hull
-          console.log "added:" ,added, "removed:", removed
-          if added[collection]?[id]?
-            console.error("i am myself in the added collection! ") 
-          @observe_dependent(added)
-          if _.keys(removed).length
-            @stop_observation(removed_objects)
-            console.error "add operation for #{collection}._id=#{id}caused removals! "
+          @observe_dependent added
+          if _.keys(removed).lenght
+            console.error "got a removed from a root key addition. (col=#{collection}, id=#{id})"
+    else
+      if _.deepIn @hull.root_keys, path
+        #already published as root. do nothing, but warn this should not happen (any root should not also be published as dependent)
+         console.error "got root key in a dependent observation. (col=#{collection}, id=#{id})"
+      else  
+        unless observer_environment.get()
+          console.error ("got a dependent key from a outside the observation environment. this should never happen")
+        @s.added @out_collection_name(collection), id,fields
   changed: (collection,id,fields, is_root=true)->
+    path= [collection,id]
+    if observer_environment.get()
+      console.error "Got  a change request from a dependent observation. This should never happen!"
+      return
     for field, val of fields
       if _.isUndefined val
-        o=_.deepSet @hull.set, [collection,id] 
+        o=_.deepSet @hull.set, path
         delete o[field]
       else
-        _.deepSet @hull.set, [collection,id, field], val 
+        _.deepSet @hull.set, [path..., field], val 
     @s.changed @out_collection_name(collection),id,fields
-    unless observer_environment.get()
-      observer_environment.withValue true, =>
-        [added,removed]= TP.outer_hull @hull
-        console.log "CHANGED added:" ,added, "removed:", removed
-        
-        @observe_dependent(added)
-        if is_root and removed[collection]?[id]?
-          #don't remove observation from obects we did not subscribe ourselves
-          delete removed[collection][id]
-          keep= false
-          for key of removed[collection]
-            keep= true
-          unless keep
-            delete removed[collection]
-        @stop_observation(removed)
+    observer_environment.withValue true, =>
+      [added,removed]= TP.outesr_hull @hull
+      console.log "CHANGED added:" ,added, "removed:", removed
+      if is_root
+        if _.deepin
+      @observe_dependent(added)
+      if is_root and removed[collection]?[id]?
+        #don't remove observation from obects we did not subscribe ourselves
+        delete removed[collection][id]
+        keep= false
+        for key of removed[collection]
+          keep= true
+        unless keep
+          delete removed[collection]
+      @stop_observation(removed)
     unless _.deepIn(@hull.set[collection][id])
       console.error("change of #{collection}.#{id} caused the object itself not to be in the result set any longer. fields:#{JSON.stringify(fields)}")
   _set_ids: ()->
