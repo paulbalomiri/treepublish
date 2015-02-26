@@ -209,10 +209,10 @@ unless Match.All?
                   _.deepSet deps, dep_path, 1
                   new_path= [val.link_collection, val.link_id]
                   unless _.deepIn set, new_path
-                    console.log "#{invocation_id}added:" , _.deepGet(set, new_path),new_path...
+                    console.log "added:" , _.deepGet(set, new_path),new_path...
                     _.deepSet added, new_path , true
                     _.deepSet set, new_path , _.omit(dep,'_id')
-                    console.log "set to" , _.deepGet(set, new_path)
+                    console.log "set to" , _.deepGet(set, new_path) 
                     _.deepSet work, new_path, dep
     debugger
     ##now check removals
@@ -266,5 +266,5 @@ unless Match.All?
               delete obj[collection][id]
               unless _.keys(obj[collection]).length
                 delete obj[collection]      
-    console.error "outer hull: ADDED:", added, "removed:", removed
+    #console.error "outer hull: ADDED:", added, "removed:", removed
     return [added,removed]

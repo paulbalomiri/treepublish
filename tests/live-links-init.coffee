@@ -12,8 +12,8 @@ share.G= G =
 share.oplog= new Meteor.Collection('oplog')
 share.test_case_result_mixin = 
   eqGraph: (g1, g2, msg)->
-      n1= G.normalize_link_values _.cloneDeep g1, true
-      n2= G.normalize_link_values _.cloneDeep g2, true
+      n1= G.normalize_link_values _.cloneDeep g1, 0
+      n2= G.normalize_link_values _.cloneDeep g2, 0
       @equal n1,n2, msg
 Tinytest.addWithGraph = (name,g,f)->
   my_f=(args...,cb)->
@@ -129,8 +129,8 @@ G.normalize_link_values= (links, normalize_objects=false, start_index )->
             _.extend node, groups[idx].map( (doc) -> _.omit(doc,'remove'))...
         else
           node.idx_offset= idx
-    link_props_array= link_props_array.filter (doc)-> not doc.remove
 
+    links[collection]=link_props_array= link_props_array.filter (doc)-> not doc.remove    
   return links
 G.set_graph= (g)->
   G.reset_db()
@@ -218,13 +218,15 @@ G.get_graph= (collection_name_appendix="")->
   if _.isBoolean(collection_name_appendix)
     collection_name_appendix= G.result_appendix
   ret= {}
-  props= [share.link_prop_names...] 
+  props= [share.link_prop_names..., "idx" ] 
   for name in share.col_names
     col= TP.get_collection_by_name(name + collection_name_appendix)
-    cur= col.find()
+    cur= col.find({},{sort:{idx:1}})
     if cur.count()>0
-      ret[name]=cur.fetch().map (doc)->
+      ret[name]=cur.fetch().map (doc, result_idx)->
         doc= _.pick doc, props
+        if doc.idx==result_idx
+          delete doc.idx
         if _.keys(doc).length==0
           null
         else

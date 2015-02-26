@@ -103,8 +103,9 @@ class TP.Observer
       colection2: ...
   ###
   observe_dependent:(added_objects)->
-    console.log "added_objects:",added_objects
+    
     for collection, ids_o of added_objects
+      console.log "observing objects in dependent collection #{collection}:", _.keys(ids_o)
       ids=[]
       for id of ids_o
         ids.push id
@@ -183,31 +184,67 @@ class TP.Observer
         console.error("Request to stop observation on unwatched collection (subscr=#{@_subscriptionHandle}, col=#{collection}, id=#{id})")
   
   is_observed: (path)->
-    cursor_env = _.deepP
+    if _.isString path
+      path= _.deepParseStringProperty path
+    [collection,id]=path
+    cursor_env = @cursors[collection]
+    unless cursor_env?
+      return false
+    else 
+      return cursor_env[collection] and  cursor_env.id_to_handler[id]? and (not cursor_env.suppressed_call?)
+  ### all dependent lookups are done in the dependent environent
+  ###
+  _is_in_observerenvironment: ->
+    observer_environment.get()
+  _with_observer_environment: (f)->
+    observer_environment.withValue true, f
   added: (collection, id,fields, is_root=true)->
     path= [collection, id]
     if is_root
+      console.log "added : " , collection, id,fields, is_root
       count= _.deepGet @hull.root_keys, path, 0
-      _.deepSet @hull.root_keys, path, count++
+      count= count+1
+      _.deepSet @hull.root_keys, path, count
       if count==1
-        if is_observed
+        ## Here we have a new key to observe
+        ##
+        if @is_observed path
+          #stop dependent observation as this doc just became a root doc
+          #this should call remove
           @stop_observation( _.deepSet {} , path , true)
-        # We just added this
+        # Now add this. if it was dependent a remove was issued from above
         @s.added @out_collection_name(collection), id,fields
         _.deepSet @hull.set ,path, fields
         [added,removed]= TP.outer_hull @hull
-        observer_environment.withValue true, =>
+
+        @_with_observer_environment =>
+
+          #console.log "added dependencies:" , _.map added, (v,k) -> [k,_.keys(v)]  
           @observe_dependent added
-          if _.keys(removed).lenght
+          if _.keys(removed).length
             console.error "got a removed from a root key addition. (col=#{collection}, id=#{id})"
     else
       if _.deepIn @hull.root_keys, path
         #already published as root. do nothing, but warn this should not happen (any root should not also be published as dependent)
          console.error "got root key in a dependent observation. (col=#{collection}, id=#{id})"
       else  
-        unless observer_environment.get()
-          console.error ("got a dependent key from a outside the observation environment. this should never happen")
-        @s.added @out_collection_name(collection), id,fields
+        unless @_is_in_observerenvironment()
+          ## a dependendent key may only *change* and then pull in other dependent keys within the observer_environment. 
+          ## add on a dependent object cannot (=should not) happen
+          ##console.error ("got a dependent key add from a outside the observation environment. this should never happen")
+          ## The client may however contract change and add
+          console.log "added dependent:" ,  collection, id,fields
+          @s.added @out_collection_name(collection), id,fields
+          [added,removed]= TP.outer_hull @hull
+          @_with_observer_environment =>
+            @observe_dependent added
+            if _.keys(removed).length
+              console.error "got a removed from a dependent key addition. (col=#{collection}, id=#{id})"
+        else
+          ## Here we have the dependent add
+          ##
+          console.log("dependent add: #{collection}.#{id}")
+          @s.added @out_collection_name(collection), id,fields
   changed: (collection,id,fields, is_root=true)->
     path= [collection,id]
     if observer_environment.get()
@@ -220,49 +257,41 @@ class TP.Observer
       else
         _.deepSet @hull.set, [path..., field], val 
     @s.changed @out_collection_name(collection),id,fields
-    observer_environment.withValue true, =>
-      [added,removed]= TP.outesr_hull @hull
-      console.log "CHANGED added:" ,added, "removed:", removed
-      if is_root
-        if _.deepin
-      @observe_dependent(added)
-      if is_root and removed[collection]?[id]?
-        #don't remove observation from obects we did not subscribe ourselves
-        delete removed[collection][id]
-        keep= false
-        for key of removed[collection]
-          keep= true
-        unless keep
-          delete removed[collection]
-      @stop_observation(removed)
-    unless _.deepIn(@hull.set[collection][id])
-      console.error("change of #{collection}.#{id} caused the object itself not to be in the result set any longer. fields:#{JSON.stringify(fields)}")
-  _set_ids: ()->
-    ret= {}
-    for col , o1 of @hull.set
-      ret[col]=[]
-      for id of o1
-        ret[col].push id
-    return ret
-  removed:(collection,id,is_root=true)->
-    if is_root
-      delete @hull.root_keys[collection][id]
-    unless _.deepGet @hull.set, [collection][id]
-      console.error "Cannot remove #{collection}.#{id}, because it is not in the active set!"
-    if _.keys(@hull.set[collection]).length >1
-      delete @hull.set[collection][id]
-    else
-      delete @hull.set[collection]  
-    console.error "REMOVE: is_root=#{is_root}, col=#{collection}, id=#{id}"
-    @s.removed(@out_collection_name(collection), id)
-    unless observer_environment.get()
-      observer_environment.withValue true, =>
+    #console.log "CHANGING: (root=#{is_root}, _is_in_observerenvironment:#{@_is_in_observerenvironment()} ) ",  collection, id, fields   
+    unless @_is_in_observerenvironment()
+      @_with_observer_environment =>
         [added,removed]= TP.outer_hull @hull
-        console.error "REMOVESET: " ,"added:" ,added, "removed:", removed, "set:", @_set_ids()
+        console.log "CHANGED added:" ,added, "removed:", removed
         @observe_dependent(added)
         @stop_observation(removed)
-        if added? and _.keys(added).length
-          console.error 'remove operation caused add to outer hull!'
+      unless _.deepIn(@hull.set[collection][id])
+        console.error("change of #{collection}.#{id} caused the object itself not to be in the result set any longer. fields:#{JSON.stringify(fields)}")
+  removed:(collection,id,is_root=true)->
+    path= [collection,id]
+    if is_root
+      count= _.deepGet @hull.root_keys , path
+      if count == 1
+        if  _.keys(@hull.root_keys[collection]).length>1
+          delete @hull.root_keys[collection][id]
+        else
+          delete @hull.root_keys[collection]
+
+        if  _.keys(@hull.set[collection]).length > 1
+          delete @hull.set[collection][id]
+        else
+          delete @hull.set[collection]
+        #TODO: if this key was a root key, and also dependent it is deleted here only to be readded later
+        @s.removed collection, id
+        @_with_observer_environment =>
+          [added,removed]= TP.outer_hull @hull
+          @observe_dependent(added)
+          @stop_observation(removed)
+      else
+        #Do nothing but decrement counter 
+        _.deepSet @hull.root_keys, path, count-1
+    else
+      console.log  "Removed" ,collection, id  
+      @s.removed collection, id
   add_external_cursors:(curs)->
     unless _.isArray curs
       curs=[curs]

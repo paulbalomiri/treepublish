@@ -120,5 +120,7 @@ Tinytest.addWithGraph 'text change_link', g,  (test)->
   test.eqGraph G.get_graph() , {A:'B0', B:'A0' }, "Graqh mutation did not yield expected graph"
   G.remove_link('B0.0')
   test.eqGraph G.get_graph(),g
+Tinytest.add "final reset_db 1",->
+  G.reset_db()
   
 

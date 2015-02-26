@@ -8,7 +8,7 @@ for func, idx in TP._collection_getters
     appendix= collection_name_appendix.get() or ""
     return func(name+appendix)
 
-Meteor.subscribe 'base-collections'
+base_collections_sub= Meteor.subscribe 'base-collections'
 # create client-side result collections
 _.extend TP.collections, _.object share.col_names.map (name)->
   res= "#{name}#{G.result_appendix}"
@@ -77,7 +77,7 @@ Tinytest.publishTest= (name, before_subscribe, after_subscribe)->
               ready[idx]=true
             finally
               if ready_all()
-                finisher()
+                Meteor.setTimeout finisher, 100
           onError:(msg) ->
             try
               test.isFalse "Subscription failed for args, #{sub_args.join(",")}", msg.toString()
@@ -99,12 +99,10 @@ Tinytest.publishTest "test that a graph appears in the result set",
     G.set_graph
       A:'B0'
       B:""
-    debugger
     @subscribe "result-collections", 'A'
     #G.change_link "B1", "A0"
   ,
   (test)->
-    debugger 
     g= G.get_graph()
     test.eqGraph  g,
         A:'B0'
@@ -127,7 +125,6 @@ Tinytest.publishTest "Test that a dependent component is added, and a not depend
   (test)->
     g= G.get_graph true
     oplog= oplog_cur.fetch()
-    debugger
     test.eqGraph  g,
         A:'B0'
         B:''
@@ -139,16 +136,17 @@ Tinytest.publishTest "Test that a dependent component is added, and a not depend
 Tinytest.publishTest "Test that a dependent component is added, and a not dependent is not added 2",
   (test)-> 
     G.set_graph
-      A:"B0;"
+      A:"B1;"
       B:';A1'
-    @subscribe 'result-collections', 'B'
+    @subscribe 'result-collections', 'A'
   ,
   (test)->
-    g= G.get_graph true
+    debugger
+    g= G.get_graph
     #oplog= @oplog_cur.fetch()
     
-    test.eqGraph  g,
-        A:'B0;'
+    test.eqGraph g, 
+        A:'B1;'
         B:'1:A1'
       , 
         "B0 ought to be in the result set, B1 not."
