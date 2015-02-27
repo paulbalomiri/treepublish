@@ -4,7 +4,7 @@ makes a graph definition.
 Collections are provide
 ###
 
-share.col_names=  ['A','B', 'C']
+share.col_names=  ['A','B', 'C', 'D']
 share.link_prop_names= ['l0', 'l1', 'l2', 'l3']
 share.G= G =
   result_appendix: "_result"
@@ -12,9 +12,13 @@ share.G= G =
 share.oplog= new Meteor.Collection('oplog')
 share.test_case_result_mixin = 
   eqGraph: (g1, g2, msg)->
-      n1= G.normalize_link_values _.cloneDeep g1, 0
-      n2= G.normalize_link_values _.cloneDeep g2, 0
-      @equal n1,n2, msg
+      n_list=[]
+      for g in [g1,g2]
+        n=  G.normalize_link_values _.cloneDeep g
+        n=  G.links_resolve_idx_delta n,0
+        n=  G.links_id_to_idx n
+        n_list.push n
+      @equal n_list..., msg
 Tinytest.addWithGraph = (name,g,f)->
   my_f=(args...,cb)->
     f(args...)
@@ -59,22 +63,25 @@ links:
 
 link_short_name_rex=/([A-Za-z0-9]*[A-Za-z])([0-9]+)/
 
-G.normalize_link_values= (links, normalize_objects=false, start_index )->
+G.normalize_link_values= (links, normalize_objects=false )->
   for collection,link_props_array of links
     unless _.isArray link_props_array
       if _.isString link_props_array
         links[collection]=link_props_array= link_props_array.split(';')
       else
         links[collection]=link_props_array=[link_props_array]
+    idx_counter=0
     for link_props, link_props_array_idx in link_props_array
       if _.isString link_props
         [node_props,link_props]=link_props.split(":")
         unless link_props
           [node_props,link_props]=[link_props, node_props]
         if link_props==""
-          link_props= null
+          link_props= {}
         else
           link_props= [link_props.split(',')...]
+      else if not link_props?
+        link_props= {}
       if _.isArray link_props
         link_props = _.object link_props.map (val,idx)->
           if idx >= share.link_prop_names.length
@@ -82,21 +89,17 @@ G.normalize_link_values= (links, normalize_objects=false, start_index )->
           return [share.link_prop_names[idx], val]
         for link_prop,link_val of link_props
           if link_val=="" or _.isNull(link_val)
-            link_props[link_prop]= null
+            link_props[link_prop]= {}
             continue # node without links
           fields= link_short_name_rex.exec link_val
           unless fields
             throw new Error( "Cannot extact collection/idx from short name #{link_val}")
           unless target_collection= TP.get_collection_by_name  fields[1].toUpperCase()
             throw new Error "Could not find collection/extract colection name from #{link_val}. Expecting name to be #{field[1].toUpperCase}"
-          unless target= target_collection.findOne {idx: fields[2]%1}
-            target_idx= fields[2]/1
+          target_idx= fields[2]/1
           l=
             link_collection: TP.get_collection_name target_collection
-          if target?
-            l.link_id=target._id
-          else
-            l.target_idx= target_idx
+            target_idx: target_idx
           link_props[link_prop]=l
       else if _.isObject(link_props) and normalize_objects
         #this is nessesary for equivalence comparisions
@@ -108,30 +111,87 @@ G.normalize_link_values= (links, normalize_objects=false, start_index )->
             delete val.link_id
       if node_props 
         link_props.idx= node_props/1
-      link_props_array[link_props_array_idx]= link_props
-    links[collection]=link_props_array= link_props_array.map (l)->
-      if l?
-        l
       else
-        {}
-    groups= _.groupBy link_props_array , (node)->
-      unless node?.forced_node?
-        return
-      else
-        return node.forced_node
-    if groups[undefined]?
-      for node, idx in groups[undefined]
-        if start_index?
-          node.idx= start_index+idx
-          if groups[idx]
-            for forced_node in groups[idx]
-              forced_node.remove= true
-            _.extend node, groups[idx].map( (doc) -> _.omit(doc,'remove'))...
-        else
-          node.idx_offset= idx
-
-    links[collection]=link_props_array= link_props_array.filter (doc)-> not doc.remove    
+        unless link_props.idx
+          link_props.idx_offset= idx_counter
+          idx_counter+=1
+      link_props_array[link_props_array_idx]=link_props  
   return links
+
+G.links_resolve_idx_delta= (g, start_index)->
+  for collection, node_list of g
+    unless start_index?
+      cur=TP.get_collection_by_name(collection).find {},
+        sort: 
+          idx:-1
+        limit:1
+      idx_counter= cur.fetch()[0]?.idx
+      unless max?
+        idx_counter=0
+    else
+      idx_counter= start_index
+    
+      
+    ###
+    Assign numbers to all offsets
+    ###
+    for node , node_idx in node_list
+      if node.idx_offset?
+        unless node.idx?
+          node.idx= idx_counter + node.idx_offset
+        delete node.idx_offset
+    ###
+      * sort the nodelist according to idx (in place)
+    ###
+    node_list.sort (a,b)->
+      if a.idx < b.idx
+        -1
+      else if a.idx > b.idx
+        1
+      else
+        0
+    ###
+      * contract cosecutive nodes with same ids into one node (in place using splice)
+    ###
+    prev_idx = -1
+    i=0
+    while i < node_list.length 
+      node=node_list[i]
+      if prev_idx == node.idx
+        _.extend node_list[i-1], node
+        node_list.splice(i-1,1)
+      else
+        prev_idx= node.idx
+      i+=1
+  return g
+G.links_id_to_idx= (g)->
+  for collection, node_list of g
+    for node, idx in node_list
+      for link_prop, link_val of _.pick node, share.link_prop_names
+        if link_val.link_id?
+          link_val.target_idx= TP.get_collection_by_name(link_val.link_collection).findOne(link_val.link_id).idx
+          delete link_val.link_id
+      if node._id?
+        unless node.idx?
+          node.idx= TP.get_collection_by_name(collection).findOne(node._id).idx
+        delete node._id
+  return g
+G.links_idx_to_id= (g)->
+  for collection, node_list of g
+    for node, idx in node_list
+      for link_prop, link_val of _.pick node, share.link_prop_names
+        if link_val.target_idx?
+          link_val.link_id= TP.get_collection_by_name(link_val.link_collection).findOne 
+              idx: link_val.target_idx
+            ._id
+          delete link_val.target_idx
+      if node.idx?
+        unless node._id?
+          node._id= TP.get_collection_by_name(collection).findOne
+            idx:node.idx
+          node._id= node._id._id
+        delete node.idx
+  return g
 G.set_graph= (g)->
   G.reset_db()
   G.insert_links(g)
@@ -218,19 +278,14 @@ G.get_graph= (collection_name_appendix="")->
   if _.isBoolean(collection_name_appendix)
     collection_name_appendix= G.result_appendix
   ret= {}
-  props= [share.link_prop_names..., "idx" ] 
+  props= [share.link_prop_names..., "_id" , 'idx'] 
   for name in share.col_names
     col= TP.get_collection_by_name(name + collection_name_appendix)
     cur= col.find({},{sort:{idx:1}})
     if cur.count()>0
       ret[name]=cur.fetch().map (doc, result_idx)->
         doc= _.pick doc, props
-        if doc.idx==result_idx
-          delete doc.idx
-        if _.keys(doc).length==0
-          null
-        else
-          doc
+        doc
   return ret
 
 G.equivalent_graphs= (g1, g2)->

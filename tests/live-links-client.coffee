@@ -37,7 +37,6 @@ Tinytest.publishTest= (name, before_subscribe, after_subscribe)->
   args=
     before_subscribe: before_subscribe or ->
     after_subscribe: after_subscribe
-  debugger
   Tinytest.addAsync name, (test, on_complete)->
     subscribe_args= null
     _.extend(test, share.test_case_result_mixin)
@@ -60,7 +59,6 @@ Tinytest.publishTest= (name, before_subscribe, after_subscribe)->
     subscription_handlers=[]
     finisher= ->
       try
-        debugger
         args.after_subscribe?(test)
       finally
         for subscription_handler in subscription_handlers
@@ -133,7 +131,7 @@ Tinytest.publishTest "Test that a dependent component is added, and a not depend
 
 
 
-Tinytest.publishTest "Test that a dependent component is added, and a not dependent is not added 2",
+Tinytest.publishTest "Test thant the coorect link dependency is added",
   (test)-> 
     G.set_graph
       A:"B1;"
@@ -142,7 +140,7 @@ Tinytest.publishTest "Test that a dependent component is added, and a not depend
   ,
   (test)->
     debugger
-    g= G.get_graph
+    g= G.get_graph true
     #oplog= @oplog_cur.fetch()
     
     test.eqGraph g, 
@@ -150,30 +148,66 @@ Tinytest.publishTest "Test that a dependent component is added, and a not depend
         B:'1:A1'
       , 
         "B0 ought to be in the result set, B1 not."
-
-Tinytest.addWithGraphAsync "Test that a change in a component yields to a change in subscription is added, and a not dependent is not added",
-  (test, on_complete)-> 
+Tinytest.publishTest "Test 4 level dependency",
+  (test)-> 
     G.set_graph
-      A:"B0"
-      B:';'
-      C:""
-    subscription= Meteor.subscribe 'result-collections', 'A',
-      onReady: ->
-        g= G.get_graph true
-        test.eqGraph g,
-          A:"B0"
-          B:"" 
-        change_link('A0', 'B1' )
-        Meteor.autorun (c)->
-          g= G.get_graph()
-          unless c.firstRun
-            test.eqGraph g,
-              A:"B0"
-              B:""
-            g.B.idx==1
-            subscription.stop()
-            on_complete()
-        
+      A:"B1;"
+      B:';C1;C2'
+      C:';D0;;'
+      D:'B0;;;'
+    @subscribe 'result-collections', 'A'
+  ,
+  (test)->
+    g= G.get_graph true
+    #oplog= @oplog_cur.fetch()
+    
+    test.eqGraph g, 
+        A: 'B1;' # A is published as root LEVEL0
+        B:[
+          ''    #from D0 LEVEL4
+          'C1' # from A0 LEVEL1
+        ]
+        C:[
+          '1:D0'#from B1 LEVEL2
+        ]
+        D:[
+          'B0' #from C1 LEVEL3
+        ]
+      , 
+        "B0 ought to be in the result set, B1 not."
+
+Tinytest.addWithGraphAsync "Test that link change unsubscribes one dependent and subsribes the new pointed to dependent",
+    A:"B0"
+    B:';'
+    C:""
+  ,
+    (test, on_complete)-> 
+      
+      subscription= Meteor.subscribe 'result-collections', 'A',
+        onReady: ->
+          g= G.get_graph true
+          test.eqGraph g,
+            A:"B0"
+            B:"" 
+          G.change_link('A0', 'B1' )
+          Meteor.autorun (c)->
+            #wait for the change to come back from the server
+            g= G.get_graph true
+            if c.firstRun
+              #here nothing has changed yet(no roundtrip from the server)
+              test.eqGraph g,
+                A:"B0"
+                B:""
+            else
+              #here the results collection has been updated
+              test.eqGraph g,
+                A:"B1"
+                B:""
+              g.B.idx==1
+              subscription.stop()
+              c.stop()
+              on_complete()
+          
         
 
 
